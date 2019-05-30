@@ -280,15 +280,6 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 	buf := new(bytes.Buffer)
 	isFirstMsg := true
 	g.generateGoFileHeader(buf, file)
-	//buf.WriteString("import (\n")
-	//buf.WriteString(tab)
-	//buf.WriteString("\"github.com/gogo/protobuf/proto\"\n")
-	if file.GetSyntax() == "proto2" {
-		buf.WriteString("import \"github.com/gogo/protobuf/proto\"\n\n")
-	}
-	//buf.WriteString(tab)
-	//buf.WriteString("\"log\"\n")
-	//buf.WriteString(")\n\n")
 
 	for _, msg := range file.GetMessageType() {
 		if !isFirstMsg {
@@ -338,13 +329,10 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 					assignmentBuf.WriteString(argumentName)
 					assignmentBuf.WriteString(",\n")
 
-				}
-				if file.GetSyntax() == "proto2" {
-					assignmentBuf.WriteString("proto.")
-					assignmentBuf.WriteString(strings.Title(typeName))
-					assignmentBuf.WriteByte('(')
+				} else {
+					assignmentBuf.WriteByte('&')
 					assignmentBuf.WriteString(argumentName)
-					assignmentBuf.WriteString("),\n")
+					assignmentBuf.WriteString(",\n")
 				}
 			} else {
 				if isEnumType {
