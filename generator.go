@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	targetCmd     string = "cmd"
-	targetPackMsg string = "pack"
-	targetUnpack  string = "unpack"
-	targetAs      string = "as"
-	targetJava    string = "java"
-	targetTS      string = "ts"
-	targetTSPB    string = "ts.pb"
-	targetTSModel string = "ts.model"
+	targetCmd         string = "cmd"
+	targetPackMsg     string = "pack"
+	targetUnpack      string = "unpack"
+	targetAs          string = "as"
+	targetJava        string = "java"
+	targetTS          string = "ts"
+	targetTSPB        string = "ts.pb"
+	targetTSModel     string = "ts.model"
+	targetGoModelResp string = "go.resp"
 )
 
 // Generator the auto code generator
@@ -76,7 +77,7 @@ func (g *Generator) LoadParams() {
 
 // GenerateFiles Generate Entrance
 func (g *Generator) GenerateFiles() {
-	flags := make([]bool, 8)
+	flags := make([]bool, 9)
 	_, flags[0] = g.Params[targetAs]
 	_, flags[1] = g.Params[targetCmd]
 	_, flags[2] = g.Params[targetPackMsg]
@@ -85,6 +86,7 @@ func (g *Generator) GenerateFiles() {
 	_, flags[5] = g.Params[targetTS]
 	_, flags[6] = g.Params[targetTSPB]
 	_, flags[7] = g.Params[targetTSModel]
+	_, flags[8] = g.Params[targetGoModelResp]
 
 	filesToGen := 0
 	for _, v := range flags {
@@ -141,27 +143,14 @@ func (g *Generator) GenerateFiles() {
 			g.Response.File[responseFileIndex] = g.generateTSProtoModelFile(file)
 			responseFileIndex++
 		}
+
+		if flags[8] { // generate ts proto model file
+			g.Response.File[responseFileIndex] = g.generateGoRespModelFile(file)
+			responseFileIndex++
+		}
 	}
 }
 
-/*
-
-g.typesMapping["TYPE_DOUBLE"] = "float64"
-	g.typesMapping["TYPE_FLOAT"] = "float32"
-	g.typesMapping["TYPE_INT32"] = "int32"
-	g.typesMapping["TYPE_INT64"] = "int64"
-	g.typesMapping["TYPE_UINT32"] = "uint32"
-	g.typesMapping["TYPE_UINT64"] = "uint64"
-	g.typesMapping["TYPE_SINT32"] = "int32"
-	g.typesMapping["TYPE_SINT64"] = "int64"
-	g.typesMapping["TYPE_FIXED32"] = "uint32"
-	g.typesMapping["TYPE_FIXED64"] = "uint64"
-	g.typesMapping["TYPE_SFIXED32"] = "int32"
-	g.typesMapping["TYPE_SFIXED64"] = "int64"
-	g.typesMapping["TYPE_BOOL"] = "bool"
-	g.typesMapping["TYPE_STRING"] = "string"
-	g.typesMapping["TYPE_BYTES"] = "[]byte"
-*/
 func (g *Generator) getTsTypesMapping(name string) string {
 	switch name {
 	case "TYPE_DOUBLE", "TYPE_FLOAT", "TYPE_INT32", "TYPE_INT64", "TYPE_UINT32", "TYPE_UINT64", "TYPE_SINT32",
@@ -336,7 +325,7 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 				}
 			} else {
 				if isEnumType {
-					assignmentBuf.WriteString("&")
+					//assignmentBuf.WriteString("&--")
 				}
 				assignmentBuf.WriteString(argumentName)
 				assignmentBuf.WriteString(",\n")
@@ -383,6 +372,69 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 	response := new(plugin.CodeGeneratorResponse_File)
 	fileSuffix := path.Ext(*file.Name)
 	generatedFileName := (*file.Name)[0:len(*file.Name)-len(fileSuffix)] + ".pack.go"
+	fileContent := buf.String()
+	response.Name = &generatedFileName
+	response.Content = &fileContent
+	return response
+}
+
+func (g *Generator) generateGoRespModelFile(file *google_protobuf.FileDescriptorProto) *plugin.CodeGeneratorResponse_File {
+	buf := new(bytes.Buffer)
+	g.generateGoFileHeader(buf, file)
+	buf.WriteString("import \"sync\"\n\n")
+	buf.WriteString("var msgPool = &sync.Pool{New: func() interface{} { return new(ResponseMessage) }}\n\n")
+
+	var errFuncStr = func(cmd string, ok bool) string {
+		okBuf := new(bytes.Buffer)
+		okBuf.WriteString("\tresp := msgPool.Get().(*ResponseMessage)\n")
+		okBuf.WriteString("\tresp.MessageType = ")
+		okBuf.WriteString(cmd)
+		okBuf.WriteByte('\n')
+		okBuf.WriteString("\tresp.ErrorCode = ")
+		if ok {
+			okBuf.WriteString("0")
+		} else {
+			okBuf.WriteString("errCode")
+		}
+		okBuf.WriteByte('\n')
+		okBuf.WriteString("\tresp.Body = nil")
+		okBuf.WriteByte('\n')
+		okBuf.WriteString("\tret := resp.Bytes()")
+		okBuf.WriteByte('\n')
+		okBuf.WriteString("\tmsgPool.Put(resp)")
+		okBuf.WriteByte('\n')
+		okBuf.WriteString("\treturn ret")
+		okBuf.WriteByte('\n')
+		return okBuf.String()
+	}
+
+	for _, msg := range file.GetMessageType() {
+
+		msgTypeName := strings.Title(msg.GetName())
+		if strings.HasSuffix(msgTypeName, "Request") ||
+			strings.HasSuffix(msgTypeName, "Response") {
+
+			buf.WriteString("func New")
+			buf.WriteString(msgTypeName)
+			buf.WriteString("Err(errCode MsgCode) []byte {\n")
+			buf.WriteString(errFuncStr("Cmd_"+msgTypeName, false))
+			buf.WriteByte('}')
+			buf.WriteByte('\n')
+			buf.WriteByte('\n')
+			buf.WriteString("func New")
+			buf.WriteString(msgTypeName)
+			buf.WriteString("Ok() []byte {\n")
+			buf.WriteString(errFuncStr("Cmd_"+msgTypeName, true))
+			buf.WriteByte('}')
+			buf.WriteByte('\n')
+			buf.WriteByte('\n')
+		}
+
+	}
+
+	response := new(plugin.CodeGeneratorResponse_File)
+	fileSuffix := path.Ext(*file.Name)
+	generatedFileName := (*file.Name)[0:len(*file.Name)-len(fileSuffix)] + ".resp.go"
 	fileContent := buf.String()
 	response.Name = &generatedFileName
 	response.Content = &fileContent
