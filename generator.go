@@ -384,20 +384,25 @@ func (g *Generator) generateGoRespModelFile(file *google_protobuf.FileDescriptor
 	buf.WriteString("import \"sync\"\n\n")
 	buf.WriteString("var msgPool = &sync.Pool{New: func() interface{} { return new(ResponseMessage) }}\n\n")
 
-	var errFuncStr = func(cmd string, ok bool) string {
+	var FuncStr = func(MsgTypeName string, withCode, withBody bool) string {
 		okBuf := new(bytes.Buffer)
 		okBuf.WriteString("\tresp := msgPool.Get().(*ResponseMessage)\n")
-		okBuf.WriteString("\tresp.MessageType = ")
-		okBuf.WriteString(cmd)
+		okBuf.WriteString("\tresp.MessageType = Cmd_")
+		okBuf.WriteString(MsgTypeName)
 		okBuf.WriteByte('\n')
 		okBuf.WriteString("\tresp.ErrorCode = ")
-		if ok {
+		if withCode {
 			okBuf.WriteString("0")
 		} else {
 			okBuf.WriteString("errCode")
 		}
 		okBuf.WriteByte('\n')
-		okBuf.WriteString("\tresp.Body = nil")
+		okBuf.WriteString("\tresp.Body = ")
+		if withBody {
+			okBuf.WriteString("msg.Bytes()")
+		} else {
+			okBuf.WriteString("nil")
+		}
 		okBuf.WriteByte('\n')
 		okBuf.WriteString("\tret := resp.Bytes()")
 		okBuf.WriteByte('\n')
@@ -412,19 +417,34 @@ func (g *Generator) generateGoRespModelFile(file *google_protobuf.FileDescriptor
 
 		msgTypeName := strings.Title(msg.GetName())
 		if strings.HasSuffix(msgTypeName, "Request") ||
-			strings.HasSuffix(msgTypeName, "Response") {
+			strings.HasSuffix(msgTypeName, "Response") ||
+			strings.HasSuffix(msgTypeName, "Event") {
 
-			buf.WriteString("func New")
+			//error message
+			buf.WriteString("func Reply")
 			buf.WriteString(msgTypeName)
 			buf.WriteString("Err(errCode MsgCode) []byte {\n")
-			buf.WriteString(errFuncStr("Cmd_"+msgTypeName, false))
+			buf.WriteString(FuncStr(msgTypeName, false, false))
 			buf.WriteByte('}')
 			buf.WriteByte('\n')
 			buf.WriteByte('\n')
-			buf.WriteString("func New")
+
+			//ok message but empty
+			buf.WriteString("func Reply")
 			buf.WriteString(msgTypeName)
 			buf.WriteString("Ok() []byte {\n")
-			buf.WriteString(errFuncStr("Cmd_"+msgTypeName, true))
+			buf.WriteString(FuncStr(msgTypeName, true, false))
+			buf.WriteByte('}')
+			buf.WriteByte('\n')
+			buf.WriteByte('\n')
+
+			//ok message with body
+			buf.WriteString("func Reply")
+			buf.WriteString(msgTypeName)
+			buf.WriteString("OkWith(msg *")
+			buf.WriteString(msgTypeName)
+			buf.WriteString(") []byte {\n")
+			buf.WriteString(FuncStr(msgTypeName, true, true))
 			buf.WriteByte('}')
 			buf.WriteByte('\n')
 			buf.WriteByte('\n')
