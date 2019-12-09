@@ -172,6 +172,23 @@ func (g *Generator) getTsTypesMapping(name string) string {
 	}
 }
 
+func (g *Generator) isProto3(file *google_protobuf.FileDescriptorProto) bool {
+	return file.GetSyntax() == "proto3"
+}
+
+func (g *Generator) getAppId(file *google_protobuf.FileDescriptorProto) int {
+	for _, v := range file.GetEnumType() {
+		if v.GetName() == "App" {
+			for _, x := range v.GetValue() {
+				if x.GetName() == "Id" {
+					return int(x.GetNumber())
+				}
+			}
+		}
+	}
+	return 1
+}
+
 func (g *Generator) isEnumType(name string, file *google_protobuf.FileDescriptorProto) bool {
 	for _, v := range file.GetEnumType() {
 		if v.GetName() == name {
@@ -314,7 +331,7 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 			assignmentBuf.WriteString(attributeName)
 			assignmentBuf.WriteString(": ")
 			if builtinType && !strings.HasPrefix(typeName, "[]") {
-				if file.GetSyntax() == "proto3" {
+				if g.isProto3(file) {
 					assignmentBuf.WriteString(argumentName)
 					assignmentBuf.WriteString(",\n")
 
@@ -324,8 +341,8 @@ func (g *Generator) generatePackFile(file *google_protobuf.FileDescriptorProto) 
 					assignmentBuf.WriteString(",\n")
 				}
 			} else {
-				if isEnumType {
-					//assignmentBuf.WriteString("&--")
+				if isEnumType && !g.isProto3(file) {
+					assignmentBuf.WriteString("&")
 				}
 				assignmentBuf.WriteString(argumentName)
 				assignmentBuf.WriteString(",\n")
@@ -382,20 +399,32 @@ func (g *Generator) generateGoRespModelFile(file *google_protobuf.FileDescriptor
 	buf := new(bytes.Buffer)
 	g.generateGoFileHeader(buf, file)
 	buf.WriteString("import \"sync\"\n\n")
+	if !g.isProto3(file) {
+		buf.WriteString("import \"github.com/gogo/protobuf/proto\"\n\n")
+	}
 	buf.WriteString("var msgPool = &sync.Pool{New: func() interface{} { return new(ResponseMessage) }}\n\n")
 
 	var FuncStr = func(MsgTypeName string, withCode, withBody bool) string {
 		okBuf := new(bytes.Buffer)
 		okBuf.WriteString("\tresp := msgPool.Get().(*ResponseMessage)\n")
-		okBuf.WriteString("\tresp.MessageType = Cmd_")
-		okBuf.WriteString(MsgTypeName)
+		if g.isProto3(file) {
+			okBuf.WriteString("\tresp.MessageType = Cmd_" + MsgTypeName)
+
+		} else {
+			okBuf.WriteString("\tresp.MessageType = proto.Int32(Cmd_" + MsgTypeName + ")")
+		}
+
 		okBuf.WriteByte('\n')
 		okBuf.WriteString("\tresp.ErrorCode = ")
 		if withCode {
-			okBuf.WriteString("0")
+			okBuf.WriteString("CODE_SUCCESS")
 		} else {
 			okBuf.WriteString("errCode")
 		}
+		if !g.isProto3(file) {
+			okBuf.WriteString(".Enum()")
+		}
+
 		okBuf.WriteByte('\n')
 		okBuf.WriteString("\tresp.Body = ")
 		if withBody {
@@ -423,7 +452,7 @@ func (g *Generator) generateGoRespModelFile(file *google_protobuf.FileDescriptor
 			//error message
 			buf.WriteString("func Reply")
 			buf.WriteString(msgTypeName)
-			buf.WriteString("Err(errCode MsgCode) []byte {\n")
+			buf.WriteString("Err(errCode CODE) []byte {\n")
 			buf.WriteString(FuncStr(msgTypeName, false, false))
 			buf.WriteByte('}')
 			buf.WriteByte('\n')
@@ -465,7 +494,7 @@ func (g *Generator) generateCmdFile(file *google_protobuf.FileDescriptorProto) *
 	buf := new(bytes.Buffer)
 	g.generateGoFileHeader(buf, file)
 	messageCount := len(file.MessageType)
-	messageIDOffset := 0x1000
+	messageIDOffset := 0x1000 * g.getAppId(file)
 	for messageIDOffset < messageCount {
 		messageIDOffset <<= 4
 	}
@@ -514,7 +543,7 @@ func (g *Generator) generateAsFile(file *google_protobuf.FileDescriptorProto) *p
 	buf.WriteString(tab)
 	buf.WriteString("public class ProtocolType{\n")
 	messageCount := len(file.MessageType)
-	messageIDOffset := 0x1000
+	messageIDOffset := 0x1000 * g.getAppId(file)
 	for messageIDOffset < messageCount {
 		messageIDOffset <<= 4
 	}
@@ -558,7 +587,7 @@ func (g *Generator) generateTSFile(file *google_protobuf.FileDescriptorProto) *p
 	buf.WriteByte('\n')
 	buf.WriteString("module proto.cmd {\n")
 	messageCount := len(file.MessageType)
-	messageIDOffset := 0x1000
+	messageIDOffset := 0x1000 * g.getAppId(file)
 	for messageIDOffset < messageCount {
 		messageIDOffset <<= 4
 	}
@@ -627,25 +656,6 @@ func (g *Generator) generateTSProtoBuilderFile(file *google_protobuf.FileDescrip
 	return response
 }
 
-// todo
-/*
-
-module proto.model {
-
-
-	//获取游戏配置响应
-	export class GetGameConfigResponse {
-		public roomId: string;
-		public amount: string;
-		public seat: number;
-		public configs: Array<GameConfig>; // 游戏配置列表
-	}
-
-	export enum CODE {
-		SUCCESS = 0,
-	}
-}
-*/
 func (g *Generator) generateTSProtoModelFile(file *google_protobuf.FileDescriptorProto) *plugin.CodeGeneratorResponse_File {
 	buf := new(bytes.Buffer)
 
@@ -752,7 +762,7 @@ func (g *Generator) generateJavaFile(file *google_protobuf.FileDescriptorProto) 
 	buf.WriteString("import java.util.HashMap;\n\n")
 	buf.WriteString("public class MessageTypes {\n")
 	messageCount := len(file.MessageType)
-	messageIDOffset := 0x1000
+	messageIDOffset := 0x1000 * g.getAppId(file)
 	for messageIDOffset < messageCount {
 		messageIDOffset <<= 4
 	}
