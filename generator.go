@@ -510,6 +510,34 @@ func (g *Generator) generateCmdFile(file *google_protobuf.FileDescriptorProto) *
 		messageID++
 	}
 
+	buf.WriteByte('\n')
+	buf.WriteString("var CmdName = map[int32]string{\n")
+
+	for _, v := range file.GetMessageType() {
+		if !g.isCmdType(v.GetName()) {
+			continue
+		}
+		name := strings.Title(v.GetName())
+		var protoType string
+		if strings.HasSuffix(name, "Event") {
+			protoType = "<<事件>> "
+		}
+		if strings.HasSuffix(name, "Response") {
+			protoType = "<<响应>> "
+		}
+		if strings.HasSuffix(name, "Request") {
+			protoType = "<<请求>> "
+		}
+
+		buf.WriteString("\tCmd_")
+		buf.WriteString(name)
+		buf.WriteString(": \"")
+		buf.WriteString(protoType)
+		buf.WriteString(name)
+		buf.WriteString("\",\n")
+	}
+	buf.WriteString("}\n")
+
 	response := new(plugin.CodeGeneratorResponse_File)
 	fileSuffix := path.Ext(*file.Name)
 	generatedFileName := (*file.Name)[0:len(*file.Name)-len(fileSuffix)] + ".cmd.go"
